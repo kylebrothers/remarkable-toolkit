@@ -1,0 +1,12 @@
+﻿# Editor artifacts
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Lua compiled
+*.luac
+
+# Deploy scratch
+*.zip
+*.tar.gz
