@@ -86,7 +86,7 @@ local ENDPOINTS = {
 }
 
 local DEFAULT_MODELS = {
-    gemini    = "gemini-1.5-flash",
+    gemini    = "gemini-2.0-flash",
     openai    = "gpt-4o",
     anthropic = "claude-3-5-haiku-20241022",
     ollama    = "qwen2-vl:7b",
