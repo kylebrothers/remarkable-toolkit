@@ -1,294 +1,256 @@
-﻿# Deployment Guide
+# Deployment Guide
 
-Step-by-step instructions for getting the template and OCR test plugin
-onto your reMarkable 2 for the first time, and for iterating afterward.
+Complete instructions for deploying plugins to your reMarkable 2 and
+iterating during development.
+
+---
+
+## Your device specifics
+
+| Property | Value |
+|---|---|
+| KOReader plugins path | `/home/root/xovi/exthome/appload/koreader/plugins/` |
+| Device IP (USB) | `10.11.99.1` |
+| Device IP (Wi-Fi) | Shown in Settings → Help → Copyrights and licenses |
+| SSH user | `root` |
+| SSH password | Shown in Settings → Help → Copyrights and licenses (scroll to bottom) |
 
 ---
 
 ## Prerequisites
 
-### On your Windows machine
-- **WinSCP** (free, recommended) or any SCP/SFTP client
-  Download: https://winscp.net
-- **PuTTY** (free) for SSH access
-  Download: https://putty.org
-- Alternatively, **Windows Terminal** with OpenSSH (built into Windows 11)
-  â€” no extra download needed
-
-### On your reMarkable 2
-- KOReader must already be installed
-  If not: https://github.com/koreader/koreader/wiki/Installation-on-Remarkable
-- The device must be connected to your computer via USB-C **or** on the same Wi-Fi network
+### On your Windows 11 machine
+- **Git for Windows**: https://git-scm.com/download/win
+  Install with all defaults. Choose "main" as default branch name.
+- **OpenSSH**: already built into Windows 11 (no install needed)
+- **WinSCP** (optional, for GUI file transfer): https://winscp.net
 
 ---
 
-## Step 1 â€” Find your device''s IP address and password
+## Repository structure
 
-### USB connection (recommended for first setup)
-1. Connect the reMarkable to your computer with the USB-C cable
-2. The device IP over USB is always **10.11.99.1**
+Every plugin is self-contained. The `components/` shared library lives
+**inside** each plugin directory, not alongside it. This is required by
+KOReader's module loader.
 
-### Wi-Fi connection
-1. On the reMarkable: **Settings â†’ Help â†’ Copyrights and licenses**
-2. Scroll all the way down on the right panel
-3. You will see the device''s **IP address** and **root password**
-   (The password looks like a short random word, e.g. `AbCd1234`)
+```
+remarkable-toolkit/
+├── README.md
+├── DEPLOYMENT.md
+├── .gitignore
+├── deploy.ps1                  ← run this to push to device
+├── components/                 ← master copy of shared library
+│   ├── ocr/ocr.lua
+│   ├── http/http.lua
+│   ├── wifi/wifi.lua
+│   ├── credentials/credentials.lua
+│   ├── dropbox/dropbox.lua
+│   ├── webdav/webdav.lua
+│   ├── progress/progress.lua
+│   ├── settings-screen/settings_screen.lua
+│   ├── text-viewer/text_viewer.lua
+│   ├── file-browser/file_browser.lua
+│   └── kv-page/kv_page.lua
+├── myplugin.koplugin/          ← plugin template (rename for new apps)
+│   ├── _meta.lua
+│   ├── main.lua
+│   ├── mywidget.lua
+│   └── components/ → copy of shared library (deploy.ps1 handles this)
+└── ocrtest.koplugin/           ← OCR test harness
+    ├── _meta.lua
+    ├── main.lua
+    └── components/ → copy of shared library (deploy.ps1 handles this)
+```
 
-> **Note:** Write down the root password â€” you''ll need it every time you connect.
-> It does not change unless you factory reset the device.
+**Key rule:** when deploying, `deploy.ps1` copies `components/` into each
+`.koplugin` directory automatically. You never manually manage this.
 
 ---
 
-## Step 2 â€” Connect via SSH/SFTP
+## First-time setup
 
-### Option A: Windows Terminal (built-in, no extra software)
+### 1. Clone the repo
 
-Open Windows Terminal (or PowerShell) and test the connection:
+Open PowerShell:
+
+```powershell
+cd C:\Users\YourName\Documents
+git clone https://github.com/YOURUSERNAME/remarkable-toolkit.git
+cd remarkable-toolkit
+```
+
+### 2. Connect the reMarkable via USB-C
+
+The device will be reachable at `10.11.99.1`.
+
+Test the connection:
 
 ```powershell
 ssh root@10.11.99.1
 ```
 
-When prompted for the password, enter the root password from Step 1.
-Type `exit` when done.
+Enter the root password when prompted. Type `exit` to disconnect.
 
-### Option B: PuTTY + WinSCP (easier for file transfer)
-
-**PuTTY (SSH terminal):**
-1. Open PuTTY
-2. Host Name: `10.11.99.1` (or Wi-Fi IP)
-3. Port: `22`, Connection type: SSH
-4. Click Open â†’ enter root password when prompted
-
-**WinSCP (file transfer):**
-1. Open WinSCP
-2. File protocol: **SCP**
-3. Host name: `10.11.99.1`
-4. User name: `root`
-5. Password: your root password
-6. Click Login
-
----
-
-## Step 3 â€” Find your KOReader plugins directory
-
-Once connected via SSH or WinSCP, navigate to:
-
-```
-/home/root/koreader/plugins/
-```
-
-This is where all `.koplugin` directories live. You can verify KOReader
-is installed by checking this path exists.
-
-> If KOReader was installed differently on your device the path might be
-> `/home/root/.adds/koreader/plugins/` â€” check both if the first doesn''t exist.
-
----
-
-## Step 4 â€” Transfer the files
-
-You need to copy two things to the device:
-
-| What | From (your computer) | To (reMarkable) |
-|---|---|---|
-| `components/` directory | `remarkable2-koplugin-template/components/` | `/home/root/koreader/plugins/components/` |
-| OCR test plugin | `remarkable2-koplugin-template/ocrtest.koplugin/` | `/home/root/koreader/plugins/ocrtest.koplugin/` |
-
-### Using WinSCP
-
-1. In the left panel, navigate to your local `remarkable2-koplugin-template/` folder
-2. In the right panel, navigate to `/home/root/koreader/plugins/`
-3. Select the `components` folder â†’ drag to the right panel
-4. Select the `ocrtest.koplugin` folder â†’ drag to the right panel
-
-### Using Windows Terminal / PowerShell
-
-Run these commands from the folder containing `remarkable2-koplugin-template/`:
+### 3. Run the deploy script
 
 ```powershell
-# Copy the shared components library
-scp -r remarkable2-koplugin-template/components root@10.11.99.1:/home/root/koreader/plugins/
-
-# Copy the OCR test plugin
-scp -r remarkable2-koplugin-template/ocrtest.koplugin root@10.11.99.1:/home/root/koreader/plugins/
+.\deploy.ps1
 ```
 
-Enter the root password when prompted.
+If you get a script execution error, run this first (one time only):
 
-### Verify the transfer
-
-In your SSH terminal:
-
-```bash
-ls /home/root/koreader/plugins/
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+Unblock-File .\deploy.ps1
 ```
 
-You should see `components/` and `ocrtest.koplugin/` listed alongside the
-other built-in plugins.
+Then run `.\deploy.ps1` again.
+
+### 4. Restart KOReader on the device
+
+On the reMarkable:
+1. Swipe down from the top
+2. Tap the icon in the top-right
+3. Tap **Exit → Exit**
+4. Relaunch KOReader
+
+### 5. Enable the OCR Test plugin
+
+1. In KOReader: **☰ → More tools → Plugin manager**
+2. Find **OCR Test** → tap to enable
+3. Restart when prompted
+
+The plugin now appears under **☰ → More tools → OCR Test**.
 
 ---
 
-## Step 5 â€” Restart KOReader
+## Configuring the OCR backend
 
-The plugin will not appear until KOReader is restarted.
+Before converting handwriting you need an API key.
 
-**On the reMarkable:**
-1. In KOReader, swipe down from the top of the screen
-2. Tap the icon in the top-right corner
-3. Tap **Exit** â†’ **Exit**
-4. Re-launch KOReader from xochitl (the default reMarkable interface)
-   or from your launcher
-
-**Alternatively, via SSH:**
-
-```bash
-# Restart KOReader without going back to xochitl:
-systemctl restart koreader
-```
-
----
-
-## Step 6 â€” Enable the plugin
-
-1. In KOReader: tap the **â˜°** menu (top-left)
-2. Go to **More tools â†’ Plugin manager**
-3. Find **OCR Test** in the list
-4. Tap to enable it
-5. KOReader will ask you to restart â€” tap **Restart**
-
-After restart, the plugin appears under **â˜° â†’ More tools â†’ OCR Test**.
-
----
-
-## Step 7 â€” Configure the OCR backend
-
-Before you can convert handwriting, you need to give the plugin an API key.
-
-1. Open **â˜° â†’ More tools â†’ OCR Test**
-2. Tap **Settings** in the toolbar
-3. Set **Backend** to `gemini` (recommended for first test â€” cheapest)
-4. Enter your **API key**:
-   - Gemini: get a free key at https://aistudio.google.com/app/apikey
+1. Open **☰ → More tools → OCR Test**
+2. Tap **Settings**
+3. Set **Backend** to `gemini` (recommended — cheapest, free tier available)
+4. Enter your API key:
+   - Gemini (free key): https://aistudio.google.com/app/apikey
    - OpenAI: https://platform.openai.com/api-keys
    - Anthropic: https://console.anthropic.com/
-5. Leave **Model** blank to use the backend''s default
-6. Tap the back gesture or close to save
+5. Leave **Model** blank to use the backend default
+6. Close settings (triggers save)
 
 ---
 
-## Step 8 â€” Test it
+## Using the OCR Test plugin
 
-1. Open **â˜° â†’ More tools â†’ OCR Test**
-2. Write something with your stylus on the white canvas
+1. Open **☰ → More tools → OCR Test**
+2. Write on the canvas with your stylus
 3. Tap **Convert**
-4. Wait 3-8 seconds (first call may be slower)
-5. A result screen appears showing:
-   - The recognised text
-   - Which backend processed it
-   - How long it took (milliseconds)
+4. Wait 3–8 seconds
+5. Result screen shows recognised text, backend name, and elapsed time
+6. Tap **Clear** to start a new drawing
 
-If it works, you''re done. The OCR component is validated.
+---
+
+## Day-to-day development workflow
+
+```powershell
+# 1. Make changes to files in your local repo
+
+# 2. Deploy to device (USB connected)
+.\deploy.ps1
+
+# 3. Restart KOReader on the device
+
+# 4. Test
+
+# 5. Commit and push to GitHub
+git add .
+git commit -m "Description of changes"
+git push
+```
+
+### Deploying over Wi-Fi
+
+Find your device's Wi-Fi IP in Settings → Help → Copyrights and licenses, then:
+
+```powershell
+.\deploy.ps1 -Device 192.168.x.x
+```
+
+### Deploying a single file quickly
+
+```powershell
+# Example: update only ocr.lua in the ocrtest plugin
+scp components/ocr/ocr.lua root@10.11.99.1:/home/root/xovi/exthome/appload/koreader/plugins/ocrtest.koplugin/components/ocr/ocr.lua
+```
+
+---
+
+## Adding a new plugin
+
+1. Copy `myplugin.koplugin/` and rename it to `yourplugin.koplugin/`
+2. Edit `_meta.lua` and `main.lua` — update name, fullname, description
+3. Update the `$plugins` array in `deploy.ps1` to include `yourplugin.koplugin`
+4. Run `.\deploy.ps1` to deploy
+5. Enable in KOReader Plugin Manager
 
 ---
 
 ## Troubleshooting
 
-### Plugin doesn''t appear in Plugin Manager
-Check the directory structure is correct:
+### Plugin doesn't appear in Plugin Manager
+
+Check the structure on the device:
+
 ```bash
-ls /home/root/koreader/plugins/ocrtest.koplugin/
-# Should show: _meta.lua  main.lua
-ls /home/root/koreader/plugins/components/ocr/
+ls /home/root/xovi/exthome/appload/koreader/plugins/ocrtest.koplugin/
+# Should show: _meta.lua  main.lua  components/
+
+ls /home/root/xovi/exthome/appload/koreader/plugins/ocrtest.koplugin/components/ocr/
 # Should show: ocr.lua
 ```
 
+### "module not found" error
+
+The `components/` directory is missing from inside the plugin. Run `deploy.ps1`
+again — it copies components into each plugin automatically.
+
+### Check crash log for Lua errors
+
+```bash
+tail -80 /home/root/xovi/exthome/appload/koreader/crash.log
+```
+
+Lua errors appear as `WARN Error when loading plugins/...` with a stack trace.
+
 ### "OCR not configured" message
-The settings weren''t saved. Go back to Settings and re-enter your API key,
-then close the settings screen (this triggers the save).
 
-### "OCR failed: HTTP 400/401/403"
-- 401/403: API key is wrong or not activated yet
-- 400: Usually a model name typo â€” clear the Model field to use the default
+Go to Settings in the plugin and re-enter your API key.
 
-### "OCR failed: network" or no response
-- Make sure Wi-Fi is on: **â˜° â†’ Wi-Fi connection**
-- Check the API key is for the correct service
+### HTTP 401 / 403 errors
 
-### Strokes don''t appear / drawing feels wrong
-This is likely a gesture threshold issue. Connect via SSH and check
-`/home/root/koreader/crash.log` for error messages:
-```bash
-tail -50 /home/root/koreader/crash.log
-```
+API key is incorrect or not yet activated. Double-check the key on the
+provider's website.
 
-### Plugin causes KOReader to crash on load
-Check crash.log immediately after the crash:
-```bash
-cat /home/root/koreader/crash.log | tail -100
-```
-The Lua error will be near the bottom. Share it and we can fix it.
+### Strokes not appearing on canvas
+
+This may be a gesture threshold issue on your specific firmware. Check the
+crash log for input-related errors and report them.
 
 ---
 
-## Iterating â€” updating files after changes
+## SSH quick reference
 
-Once the initial setup is done, updating is faster:
-
-```powershell
-# Update just the OCR component (most common)
-scp remarkable2-koplugin-template/components/ocr/ocr.lua root@10.11.99.1:/home/root/koreader/plugins/components/ocr/ocr.lua
-
-# Update the test plugin main file
-scp remarkable2-koplugin-template/ocrtest.koplugin/main.lua root@10.11.99.1:/home/root/koreader/plugins/ocrtest.koplugin/main.lua
-```
-
-Then restart KOReader. You do **not** need to re-enable the plugin after
-updates â€” only after the initial install.
-
-**Faster restart via SSH:**
 ```bash
-# On the reMarkable, from SSH:
-killall -HUP luajit   # soft restart â€” faster than full restart
-# If that doesn''t work:
+# Connect
+ssh root@10.11.99.1
+
+# Check plugin loaded correctly
+tail -80 /home/root/xovi/exthome/appload/koreader/crash.log
+
+# List plugins
+ls /home/root/xovi/exthome/appload/koreader/plugins/
+
+# Restart KOReader from SSH
 systemctl restart koreader
 ```
-
----
-
-## File structure on the device after deployment
-
-```
-/home/root/koreader/plugins/
-â”œâ”€â”€ components/
-â”‚   â”œâ”€â”€ ocr/
-â”‚   â”‚   â””â”€â”€ ocr.lua
-â”‚   â”œâ”€â”€ http/
-â”‚   â”‚   â””â”€â”€ http.lua
-â”‚   â”œâ”€â”€ wifi/
-â”‚   â”‚   â””â”€â”€ wifi.lua
-â”‚   â”œâ”€â”€ credentials/
-â”‚   â”‚   â””â”€â”€ credentials.lua
-â”‚   â”œâ”€â”€ dropbox/
-â”‚   â”‚   â””â”€â”€ dropbox.lua
-â”‚   â”œâ”€â”€ webdav/
-â”‚   â”‚   â””â”€â”€ webdav.lua
-â”‚   â”œâ”€â”€ progress/
-â”‚   â”‚   â””â”€â”€ progress.lua
-â”‚   â”œâ”€â”€ settings-screen/
-â”‚   â”‚   â””â”€â”€ settings_screen.lua
-â”‚   â”œâ”€â”€ text-viewer/
-â”‚   â”‚   â””â”€â”€ text_viewer.lua
-â”‚   â”œâ”€â”€ file-browser/
-â”‚   â”‚   â””â”€â”€ file_browser.lua
-â”‚   â””â”€â”€ kv-page/
-â”‚       â””â”€â”€ kv_page.lua
-â””â”€â”€ ocrtest.koplugin/
-    â”œâ”€â”€ _meta.lua
-    â””â”€â”€ main.lua
-```
-
-> The `components/` directory is **shared** across all plugins you build.
-> Each new plugin you create only needs to contain its own `.koplugin/`
-> directory â€” it requires the components by path, and they only need to
-> exist once on the device.
