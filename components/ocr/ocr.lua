@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 components/ocr/ocr.lua
 -----------------------
 Handwriting recognition backend abstraction.
@@ -8,16 +8,14 @@ configured AI vision backend, and returns the recognised text via callback.
 
 SUPPORTED BACKENDS
 ------------------
-  "gemini"    Google Gemini (gemini-1.5-flash recommended â€” cheapest capable model)
+  "gemini"    Google Gemini (gemini-1.5-flash recommended — cheapest capable model)
   "openai"    OpenAI GPT-4o Vision
   "anthropic" Anthropic Claude (claude-3-5-haiku recommended for cost)
   "ollama"    Self-hosted via Ollama (e.g. qwen2-vl:7b on local server)
 
 CONFIGURATION
 -------------
-Call OCR.configure() once at plugin init (or after settings change):
-
-    local OCR = require("components/ocr/ocr")
+Option A — call OCR.configure() from Lua:
 
     OCR.configure({
         backend  = "gemini",
@@ -27,32 +25,37 @@ Call OCR.configure() once at plugin init (or after settings change):
         prompt   = nil,                  -- optional custom prompt override
     })
 
-    -- For Ollama:
-    OCR.configure({
-        backend  = "ollama",
-        endpoint = "http://192.168.1.10:11434",
-        model    = "qwen2-vl:7b",
-    })
+Option B — drop a JSON file next to the plugin (editable via SSH):
+
+    -- File: ocrtest.koplugin/ocr_config.json
+    -- {
+    --   "backend":  "gemini",
+    --   "api_key":  "AIza...",
+    --   "model":    "",
+    --   "endpoint": ""
+    -- }
+
+    OCR.loadFromFile("/path/to/ocrtest.koplugin/ocr_config.json")
+
+    Both options can be combined; loadFromFile() and loadSettings() both call
+    configure() internally, so the last one called wins.
 
 USAGE
 -----
     OCR.recognize("/tmp/handwriting.png", function(text, err, elapsed_ms)
         if err then
-            -- err is a string describing the failure
             logger.warn("OCR failed:", err)
             return
         end
-        -- text is the recognised string
-        -- elapsed_ms is the round-trip time in milliseconds
         myPlugin:onTextReady(text, elapsed_ms)
     end)
 
 IMAGE REQUIREMENTS
 ------------------
-  â€¢ PNG or JPEG, any reasonable resolution
-  â€¢ The reMarkable 2 screen is 1404Ã—1872 at 226 DPI â€” a full-page capture
+  • PNG or JPEG, any reasonable resolution
+  • The reMarkable 2 screen is 1404×1872 at 226 DPI — a full-page capture
     at native resolution works well
-  â€¢ The image is base64-encoded before transmission; keep file size reasonable
+  • The image is base64-encoded before transmission; keep file size reasonable
     (~200-400 KB for a full page) to avoid excessive API latency
 
 ADAPTED FROM
@@ -67,14 +70,14 @@ local logger  = require("logger")
 local sha2    = require("ffi/sha2")
 local time    = require("ui/time")
 
--- â”€â”€ Default prompts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── Default prompts ──────────────────────────────────────────────────────────
 
 local DEFAULT_PROMPT = [[Please transcribe all handwritten text in this image exactly as written.
 Output only the transcribed text with no commentary, labels, or formatting additions.
 Preserve paragraph breaks and list structure where visible.
 If the image contains no handwriting, output an empty string.]]
 
--- â”€â”€ Backend endpoint constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── Backend endpoint constants ───────────────────────────────────────────────
 
 local ENDPOINTS = {
     gemini    = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
@@ -89,7 +92,7 @@ local DEFAULT_MODELS = {
     ollama    = "qwen2-vl:7b",
 }
 
--- â”€â”€ Module state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── Module state ─────────────────────────────────────────────────────────────
 
 local OCR = {
     _backend  = nil,
@@ -99,7 +102,7 @@ local OCR = {
     _prompt   = DEFAULT_PROMPT,
 }
 
--- â”€â”€ Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── Configuration ─────────────────────────────────────────────────────────────
 
 --- Configure the OCR backend.
 -- Must be called before recognize(). Safe to call multiple times (e.g. after
@@ -115,6 +118,59 @@ function OCR.configure(opts)
     logger.dbg("OCR configured: backend=", OCR._backend, "model=", OCR._model)
 end
 
+--- Load OCR configuration from a JSON file on disk.
+-- Intended for SSH-based editing: drop ocr_config.json next to the plugin,
+-- edit it with any text editor over SSH, and it will be picked up on next
+-- plugin init (or whenever you call this function).
+--
+-- The file must be valid JSON with any subset of these keys:
+--   { "backend": "gemini", "api_key": "...", "model": "", "endpoint": "" }
+-- Empty strings are treated as absent (falls back to defaults).
+--
+-- Returns true on success, false + error string on failure.
+-- Failures are non-fatal: the plugin continues with whatever was configured
+-- previously (or defaults).
+--
+-- @tparam  string file_path  Absolute path to the JSON config file.
+-- @treturn boolean, string|nil
+function OCR.loadFromFile(file_path)
+    local f = io.open(file_path, "r")
+    if not f then
+        -- File absent is normal (user hasn't created it yet); not an error.
+        logger.dbg("OCR.loadFromFile: no config file at", file_path)
+        return false, "file not found"
+    end
+    local raw = f:read("*all")
+    f:close()
+
+    if not raw or raw == "" then
+        logger.warn("OCR.loadFromFile: empty file at", file_path)
+        return false, "empty file"
+    end
+
+    local ok, parsed = pcall(JSON.decode, raw)
+    if not ok or type(parsed) ~= "table" then
+        logger.warn("OCR.loadFromFile: JSON parse error:", parsed)
+        return false, "JSON parse error: " .. tostring(parsed)
+    end
+
+    -- Treat empty strings as nil so configure() uses its defaults
+    local function nonempty(v)
+        return (type(v) == "string" and v ~= "") and v or nil
+    end
+
+    OCR.configure({
+        backend  = nonempty(parsed.backend),
+        api_key  = nonempty(parsed.api_key),
+        model    = nonempty(parsed.model),
+        endpoint = nonempty(parsed.endpoint),
+        prompt   = nonempty(parsed.prompt),
+    })
+
+    logger.info("OCR.loadFromFile: loaded config from", file_path)
+    return true
+end
+
 --- Returns true if OCR has been configured with the minimum required fields.
 function OCR.isConfigured()
     if OCR._backend == "ollama" then
@@ -128,7 +184,7 @@ function OCR.getConfigSummary()
     return string.format("backend=%s model=%s", OCR._backend or "?", OCR._model or "?")
 end
 
--- â”€â”€ Internal: image loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── Internal: image loading ───────────────────────────────────────────────────
 
 local function loadImageAsBase64(image_path)
     local f = io.open(image_path, "rb")
@@ -141,7 +197,6 @@ local function loadImageAsBase64(image_path)
         return nil, "Image file is empty: " .. tostring(image_path)
     end
     local b64 = sha2.bin_to_base64(data)
-    -- Detect media type from magic bytes
     local media_type = "image/png"
     if data:sub(1,2) == "\xFF\xD8" then
         media_type = "image/jpeg"
@@ -149,7 +204,7 @@ local function loadImageAsBase64(image_path)
     return b64, nil, media_type
 end
 
--- â”€â”€ Backend implementations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── Backend implementations ───────────────────────────────────────────────────
 
 local function recognize_gemini(b64, media_type, callback, t_start)
     local url = string.format(ENDPOINTS.gemini, OCR._model, OCR._api_key)
@@ -309,21 +364,19 @@ local BACKENDS = {
     ollama    = recognize_ollama,
 }
 
--- â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── Public API ────────────────────────────────────────────────────────────────
 
 --- Recognise handwriting in an image file.
 --
--- This function is synchronous from Lua''s perspective â€” it blocks until the
+-- This function is synchronous from Lua's perspective — it blocks until the
 -- HTTP request completes. Call it from within UIManager:scheduleIn() or a
 -- Progress.run() callback to keep the UI responsive.
 --
 -- @tparam  string   image_path   Path to PNG or JPEG file on device storage.
 -- @tparam  function callback     Called as callback(text, err, elapsed_ms).
---                                On success: text is a string, err is nil.
---                                On failure: text is nil, err is a string.
 function OCR.recognize(image_path, callback)
     if not OCR.isConfigured() then
-        callback(nil, "OCR not configured â€” call OCR.configure() first", 0)
+        callback(nil, "OCR not configured — call OCR.configure() first", 0)
         return
     end
 
@@ -347,7 +400,7 @@ function OCR.recognize(image_path, callback)
     end
 end
 
--- â”€â”€ Settings helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── Settings helpers ──────────────────────────────────────────────────────────
 
 --- Save OCR configuration to G_reader_settings under a given prefix.
 function OCR.saveSettings(prefix)
