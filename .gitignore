@@ -1,4 +1,6 @@
-﻿# Editor artifacts
+﻿ocrtest.koplugin/ocr_config.json
+
+# Editor artifacts
 *.swp
 *.swo
 .DS_Store
